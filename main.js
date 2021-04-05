@@ -1,7 +1,3 @@
-
-fetch('./test2.ts').then(res => res.arrayBuffer())
-.then(data => parse(data))
-
 const file = document.querySelector('#file')
 
 file.addEventListener('change', e => {
@@ -16,6 +12,11 @@ file.addEventListener('change', e => {
   }
 })
 
+const getCentiTime = (clock) => {
+  const K = 27000; // Hz
+  return clock / (K / 100);
+}
+
 /**
  * 
  * @param {ArrayBuffer} data 
@@ -27,7 +28,7 @@ function parse(data) {
   let captionPid = null
 
   let buffer = new Uint8Array(data.slice(no * 188, no * 188 + 188));
-
+  let clock
   while (buffer.byteLength === 188) {
       buffer = new Uint8Array(data.slice(no * 188, no * 188 + 188));
       if (buffer[0] !== 0x47) {
@@ -50,6 +51,8 @@ function parse(data) {
     
         const pcrFlag = Boolean((buffer[idx] & 0x10) >> 4)
         if (pcrFlag && (pid === pcrPid)) {
+          // PCR = 42bit
+          // = PCR-base (33bit) + PCR-ext (9bit)
           const pcrBase =
             ( buffer[idx + 1] << 25 ) +
             ( buffer[idx + 2] << 17 ) +
@@ -57,7 +60,7 @@ function parse(data) {
             ( buffer[idx + 4] << 1 ) +
             ( (buffer[idx + 5] & 0x80) >> 7 )
           const pcrExt = ( buffer[idx + 5] & 0x01 ) + buffer[idx + 6]
-          const timestamp = pcrBase * 300 + pcrExt
+          clock = BigInt(pcrBase * 300 + pcrExt)
         }
         idx += adaptationFieldLength
       }
@@ -74,6 +77,10 @@ function parse(data) {
           }
         } else if (pid === 0x0014) {
           // TODO: Time offset table
+          const currentTime = parseTimeTable(buffer.slice(idx + 1))
+          if (currentTime) {
+            
+          }
         } else if (pid === captionPid) {
           if (payloadUnitStartIndicator) {
             parseCaption(buffer.slice(idx))
@@ -84,6 +91,30 @@ function parse(data) {
   }
 }
 
+function parseTimeTable(data) {
+  // byte1 + byte2
+  const tableId = data[0]
+  const mjd = ( data[3] << 8 ) + data[4]
+
+  // TODO: I think the implementation was wrong but date is correct...
+  const Y_ = Math.floor((mjd - 15078.2) / 365.25)
+  const M_ = 12 - Math.floor((mjd - 14856.1 - (Y_ * 365.25))/ 30.6001) 
+  const D_ = mjd - 14956.1 - Math.floor(Y_ * 365.25) - Math.floor(M_ * 30.6001) - 30
+  let K = 0;
+
+  if (M_ === 14 || M_ === 15) {
+    K = 1
+  }
+
+  const year = Y_ + K + 1900
+  const month = M_ - (K * 12)
+  const date = D_
+  const hour = (data[5] >> 4) * 10 + (data[5] & 0x0f) 
+  const min = (data[6] >> 4) * 10 + (data[6] & 0x0f)
+  const sec = (data[7] >> 4) * 10 + (data[7] & 0x0f) 
+
+  return new Date(`${year}/${month + 1}/${Math.floor(date)} ${hour}:${min}:${sec}`)
+}
 
 function parseCaption(data) {
   const startCodePrefix = (data[0] << 16) +
@@ -130,9 +161,16 @@ function parseCaption(data) {
   // 0x35 - Bitmap
     if (dataUnitParameter === 0x20) {
       parseText(d.slice(5), dataUnitSize)
-    } else {
-      console.log('data unit parameter:', dataUnitParameter.toString('16'))
+    } else if (dataUnitParameter === 0x30){
+      console.log('[TODO] 1-byte DRCS')
+    } else if (dataUnitParameter === 0x31) {
+      console.log('[TODO] 2-byte DRCS')
+    } else if (dataUnitParameter === 0x34) {
+      console.log('[TODO] Color map')
+    } else if (dataUnitParameter === 0x35) {
+      console.log('[TODO] Bitmap')
     }
+
     idx += 5 + dataUnitSize
   }
 }
@@ -149,9 +187,7 @@ function parseText(data, length) {
       i += 1
     }   
     // // JIS X 0208 (lead bytes)
-    printInByte(str)
     if (str[i] > 0xa0 && str[i] < 0xff) {
-      
       const char = str.slice(i, i + 2);
       if (str[i] >= 0xfa) {
         result += parseGaiji(char)
@@ -162,11 +198,13 @@ function parseText(data, length) {
         i += 2
       }
       
-    } else if (str[i] === 0x0d) {
-      result += '\n'
+    } else if (Object.values(JIS_CONTROL_FUNCTION_TABLE).includes(
+      str[i]
+    )) {
+      console.log('JIS_CONTROL_TABLE!')
       i += 1
-    } else if (str[i] === 0x0c) {
-      result += ' '
+    } else if (str[i] >= 0x80 && str[i] <= 0x87) {
+      console.log('color map')
       i += 1
     } else {
       i += 1
