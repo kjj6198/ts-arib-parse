@@ -1,7 +1,20 @@
 
-fetch('./test.ts').then(res => res.arrayBuffer())
+fetch('./test2.ts').then(res => res.arrayBuffer())
 .then(data => parse(data))
 
+const file = document.querySelector('#file')
+
+file.addEventListener('change', e => {
+  const fileReader = new FileReader()
+  if (e.target.files) {
+
+    const file = e.target.files[0]
+    fileReader.addEventListener('load', () => {
+      parse(fileReader.result)
+    })
+    fileReader.readAsArrayBuffer(file)
+  }
+})
 
 /**
  * 
@@ -97,6 +110,7 @@ function parseCaption(data) {
     console.log('lan', numLanguages)
     offset += 7 + numLanguages * 5
   } else {
+    console.log('data group id:', dataGroupId.toString('16'))
     offset += 6
   }
 
@@ -116,6 +130,8 @@ function parseCaption(data) {
   // 0x35 - Bitmap
     if (dataUnitParameter === 0x20) {
       parseText(d.slice(5), dataUnitSize)
+    } else {
+      console.log('data unit parameter:', dataUnitParameter.toString('16'))
     }
     idx += 5 + dataUnitSize
   }
@@ -129,18 +145,18 @@ function parseText(data, length) {
   
   while (i < length) {
     if (str[i] === 0x20) {
+      result += ' '
       i += 1
     }   
     // // JIS X 0208 (lead bytes)
-    // if (str[i] > 0x20 && str[i] < 0x7f) {
-      
-    // }
     printInByte(str)
     if (str[i] > 0xa0 && str[i] < 0xff) {
-      if (str[i] === 0x20) {
-        result += ' '
+      
+      const char = str.slice(i, i + 2);
+      if (str[i] >= 0xfa) {
+        result += parseGaiji(char)
+        i += 2
       } else {
-        const char = str.slice(i, i + 2);
         const decoded = new TextDecoder('EUC-JP').decode(char) 
         result += decoded
         i += 2
@@ -162,6 +178,16 @@ function parseText(data, length) {
   document.querySelector('#result').innerHTML += result + '<br/>'
 }
 
+function parseGaiji(data) {
+  // offset is 0xa0
+  console.log('Parse Gaiji:');
+  printInByte(data)
+  const row = data[0] - 0xa0;
+  const cell = data[1] - 0xa0;
+  
+  return JIS_GAIJI[row.toString()][cell.toString()]
+}
+
 function parseCaptionPid(data) {
   const tableId = data[0]
   if (tableId !== 0x02) {
@@ -172,6 +198,7 @@ function parseCaptionPid(data) {
   const programInfoLength = ((data[10] & 0x0F) << 8) + data[11];
   let idx = 12 + programInfoLength
 
+  // TODO: remove magic number
   while (idx < (3 + sectionLength - 4)) {
     const streamType = data[idx]
     const elementaryPid = ((data[idx + 1] & 0x1f) << 8) + data[idx + 2]
@@ -184,6 +211,7 @@ function parseCaptionPid(data) {
         const descriptorTag = descriptorData[0]
         const descriptorLength = descriptorData[1]
         console.log(descriptorTag, descriptorLength)
+        // TODO: descriptor tag spec explaination
         if (descriptorTag === 0x52) {
           console.log('stream identifier descriptor')
           const componentTag = descriptorData[2]
