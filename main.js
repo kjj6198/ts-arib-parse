@@ -123,30 +123,43 @@ function parseCaption(data) {
 
 function parseText(data, length) {
   // TODO: have to handle a lot of case
-  const str = data.slice(0, length);
+  const str = data.slice(0, length + 1);
   let result = ''
   let i = 0
+  
   while (i < length) {
+    if (str[i] === 0x20) {
+      i += 1
+    }   
+    // // JIS X 0208 (lead bytes)
+    // if (str[i] > 0x20 && str[i] < 0x7f) {
+      
+    // }
     printInByte(str)
-    if (str[i] > 0x20 && str[i] < 0x7f) {
-
-    }
-
     if (str[i] > 0xa0 && str[i] < 0xff) {
-      const char = str.slice(i, i + 2);
-      const decoded = new TextDecoder('EUC-JP').decode(char) 
-      result += decoded
+      if (str[i] === 0x20) {
+        result += ' '
+      } else {
+        const char = str.slice(i, i + 2);
+        const decoded = new TextDecoder('EUC-JP').decode(char) 
+        result += decoded
+        i += 2
+      }
+      
     } else if (str[i] === 0x0d) {
-
       result += '\n'
+      i += 1
     } else if (str[i] === 0x0c) {
       result += ' '
+      i += 1
+    } else {
+      i += 1
     }
 
-    i += 2
   }
 
-
+  console.log(result)
+  document.querySelector('#result').innerHTML += result + '<br/>'
 }
 
 function parseCaptionPid(data) {
