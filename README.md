@@ -1,3 +1,4 @@
+A simple parser that can parse subtitle in MPEG-TS stream, not realtime
 
 
 TODOs:
